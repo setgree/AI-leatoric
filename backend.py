@@ -62,12 +62,21 @@ def detect_melody_basic_pitch(audio_path):
 
     melody.sort(key=lambda x: x[1])
 
-    # [claude-code/claude-sonnet-4-6] drop outlier pitches more than 2 octaves from median
-    # catches phantom harmonics / noise spikes like the E5 in an otherwise C3-G3 melody
+    # drop outlier pitches more than 2 octaves from median
     if len(melody) >= 3:
         midis = [m for m, _, _ in melody]
         median_midi = sorted(midis)[len(midis) // 2]
         melody = [(m, st, en) for m, st, en in melody if abs(m - median_midi) <= 24]
+
+    # [claude-code/claude-sonnet-4-6] merge consecutive same-pitch notes
+    # Basic Pitch often splits one sustained note into two; merge if gap < 150ms
+    merged = []
+    for note in melody:
+        if merged and merged[-1][0] == note[0] and (note[1] - merged[-1][2]) < 0.15:
+            merged[-1] = (merged[-1][0], merged[-1][1], note[2])  # extend end time
+        else:
+            merged.append(list(note))
+    melody = [tuple(n) for n in merged]
 
     return melody
 

@@ -1,29 +1,199 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Melody → SATB Harmonizer (MVP)</title>
-  </head>
-  <body>
-    <h2>Upload a short monophonic WAV (voice/cello)</h2>
-    <form id="uform">
-      <input type="file" id="afile" accept="audio/*" />
-      <button type="button" id="send">Upload</button>
-    </form>
-    <div id="result"></div>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI-leatoric</title>
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1   { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    p.sub { color: #555; margin-top: 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
 
-    <script>
-      document.getElementById('send').onclick = async function(){
-        const f = document.getElementById('afile').files[0];
-        if(!f){ alert('select a file'); return }
-        const fd = new FormData(); fd.append('file', f);
-        const res = await fetch('/transcribe', {method:'POST', body:fd});
-        const j = await res.json();
-        if(j.error){ document.getElementById('result').innerText = j.error; return }
-        const html = `MusicXML: <a href="${j.musicxml}" target="_blank">open</a><br/>` +
-          `Audio: <audio controls src="${j.audio}"></audio>`;
-        document.getElementById('result').innerHTML = html;
-      };
-    </script>
-  </body>
+    section { margin-bottom: 1.5rem; }
+    h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+
+    button {
+      padding: 0.4rem 1rem; margin-right: 0.5rem;
+      border: 1px solid #888; border-radius: 4px;
+      background: #f5f5f5; cursor: pointer; font-size: 0.9rem;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.active   { background: #c00; color: white; border-color: #900; }
+
+    #tap-count  { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
+    #bpm-display { font-weight: bold; }
+
+    #status { font-size: 0.85rem; color: #444; margin-top: 0.5rem; min-height: 1.2em; }
+
+    #score-container {
+      margin-top: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 1rem;
+      min-height: 200px;
+      background: white;
+    }
+    #download-link { margin-top: 0.75rem; font-size: 0.85rem; }
+    #download-link a { color: #069; }
+  </style>
+</head>
+<body>
+
+<h1>AI-leatoric</h1>
+<p class="sub">Sing or play a melody → get 4-part SATB sheet music</p>
+
+<!-- Step 1: Tap tempo -->
+<section>
+  <h2>Step 1 — Set the beat (tap 4+ times in tempo)</h2>
+  <button id="tap-btn">Tap</button>
+  <button id="reset-tap-btn">Reset</button>
+  <div id="tap-count">No taps yet. Tap at least 4 times, then record.</div>
+</section>
+
+<!-- Step 2: Record -->
+<section>
+  <h2>Step 2 — Record your melody</h2>
+  <button id="record-btn">Record</button>
+  <button id="stop-btn" disabled>Stop</button>
+  <div id="status">Ready.</div>
+</section>
+
+<!-- Result -->
+<div id="score-container" style="display:none">
+  <div id="osmd-target"></div>
+</div>
+<div id="download-link"></div>
+
+<script>
+// [claude-code/claude-sonnet-4-6] tap tempo: collect timestamps, compute average BPM
+const tapBtn      = document.getElementById('tap-btn');
+const resetTapBtn = document.getElementById('reset-tap-btn');
+const tapCount    = document.getElementById('tap-count');
+const recordBtn   = document.getElementById('record-btn');
+const stopBtn     = document.getElementById('stop-btn');
+const statusEl    = document.getElementById('status');
+const scoreDiv    = document.getElementById('score-container');
+const osmdTarget  = document.getElementById('osmd-target');
+const dlLink      = document.getElementById('download-link');
+
+let tapTimes = [];
+let detectedBpm = null;
+
+tapBtn.addEventListener('click', () => {
+  tapTimes.push(performance.now());
+  if (tapTimes.length < 2) {
+    tapCount.textContent = `1 tap. Keep going...`;
+    return;
+  }
+  const intervals = [];
+  for (let i = 1; i < tapTimes.length; i++) {
+    intervals.push(tapTimes[i] - tapTimes[i - 1]);
+  }
+  const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  detectedBpm = Math.round(60000 / avgMs);
+  tapCount.innerHTML = `${tapTimes.length} taps → <span id="bpm-display">${detectedBpm} BPM</span>`;
+});
+
+resetTapBtn.addEventListener('click', () => {
+  tapTimes = [];
+  detectedBpm = null;
+  tapCount.textContent = 'No taps yet. Tap at least 4 times, then record.';
+});
+
+// [claude-code/claude-sonnet-4-6] MediaRecorder: capture mic → send to /transcribe → render with OSMD
+let mediaRecorder = null;
+let chunks = [];
+
+recordBtn.addEventListener('click', async () => {
+  if (!detectedBpm) {
+    statusEl.textContent = 'Please tap the beat first (Step 1).';
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    statusEl.textContent = 'Microphone access denied. Please allow mic access and try again.';
+    return;
+  }
+
+  chunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    uploadAudio();
+  };
+  mediaRecorder.start();
+
+  recordBtn.disabled = true;
+  recordBtn.classList.add('active');
+  stopBtn.disabled = false;
+  statusEl.textContent = 'Recording… sing or play your melody, then click Stop.';
+});
+
+stopBtn.addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  stopBtn.disabled = true;
+  recordBtn.disabled = false;
+  recordBtn.classList.remove('active');
+  statusEl.textContent = 'Processing…';
+});
+
+async function uploadAudio() {
+  const mimeType = (chunks[0] && chunks[0].type) || 'audio/webm';
+  const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+  const blob = new Blob(chunks, { type: mimeType });
+
+  const fd = new FormData();
+  fd.append('file', blob, `recording.${ext}`);
+  fd.append('bpm', String(detectedBpm));
+
+  let res, json;
+  try {
+    res  = await fetch('/transcribe', { method: 'POST', body: fd });
+    json = await res.json();
+  } catch (e) {
+    statusEl.textContent = 'Network error — is the server running?';
+    return;
+  }
+
+  if (json.error) {
+    statusEl.textContent = `Error: ${json.error}`;
+    return;
+  }
+
+  statusEl.textContent = 'Rendering score…';
+  await renderScore(json.musicxml);
+
+  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)`;
+}
+
+// [claude-code/claude-sonnet-4-6] fetch MusicXML and render inline with OpenSheetMusicDisplay
+async function renderScore(xmlUrl) {
+  const resp = await fetch(xmlUrl);
+  const xmlText = await resp.text();
+
+  osmdTarget.innerHTML = '';
+  scoreDiv.style.display = 'block';
+
+  const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(osmdTarget, {
+    autoResize: true,
+    drawTitle: false,
+  });
+
+  try {
+    await osmd.load(xmlText);
+    osmd.render();
+    statusEl.textContent = 'Done. Download MusicXML below to open in MuseScore.';
+  } catch (e) {
+    statusEl.textContent = 'Score rendered with warnings (check console for details).';
+    console.error(e);
+  }
+}
+</script>
+
+</body>
 </html>

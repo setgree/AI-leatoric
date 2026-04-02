@@ -50,9 +50,20 @@
   <div id="tap-count">No taps yet. Tap at least 4 times, then record.</div>
 </section>
 
-<!-- Step 2: Record -->
+<!-- Step 2: Era -->
 <section>
-  <h2>Step 2 — Record your melody</h2>
+  <h2>Step 2 — Choose an era</h2>
+  <select id="era-select" style="padding:0.3rem 0.6rem; font-size:0.9rem;">
+    <option value="classical">Classical — diatonic triads</option>
+    <option value="baroque">Baroque — triads + V7 cadences</option>
+    <option value="romantic">Romantic — 7th chords throughout</option>
+    <option value="jazz">Jazz — extended harmony (7ths, tritone subs)</option>
+  </select>
+</section>
+
+<!-- Step 3: Record -->
+<section>
+  <h2>Step 3 — Record your melody</h2>
   <button id="record-btn">Record</button>
   <button id="stop-btn" disabled>Stop</button>
   <div id="status">Ready.</div>
@@ -148,8 +159,10 @@ async function uploadAudio() {
   const blob = new Blob(chunks, { type: mimeType });
 
   const fd = new FormData();
+  const era = document.getElementById('era-select').value;
   fd.append('file', blob, `recording.${ext}`);
   fd.append('bpm', String(detectedBpm));
+  fd.append('era', era);
 
   let res, json;
   try {
@@ -168,8 +181,9 @@ async function uploadAudio() {
   statusEl.textContent = 'Rendering score…';
   await renderScore(json.musicxml);
 
-  const keyLabel = json.key ? ` · Detected key: ${json.key}` : '';
-  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)${keyLabel}`;
+  const keyLabel = json.key ? ` · Key: ${json.key}` : '';
+  const eraLabel = json.era ? ` · Era: ${json.era}` : '';
+  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)${keyLabel}${eraLabel}`;
 }
 
 // [claude-code/claude-sonnet-4-6] fetch MusicXML and render inline with OpenSheetMusicDisplay

@@ -51,6 +51,7 @@ def quantize_melody(melody, bpm):
 async def transcribe(
     file: UploadFile = File(...),
     bpm: Optional[float] = Form(None),
+    era: Optional[str] = Form('classical'),
 ):
     uid = uuid.uuid4().hex
     tmp_path = f"/tmp/{uid}_{file.filename}"
@@ -106,7 +107,7 @@ async def transcribe(
     tonic = detected_key.tonic.name
     mode = detected_key.mode  # 'major' or 'minor'
 
-    score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80)
+    score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80, era=era or 'classical')
 
     xml_path = os.path.join(XML_DIR, f"{uid}.musicxml")
     score.write('musicxml', fp=xml_path)
@@ -115,4 +116,5 @@ async def transcribe(
         "musicxml": f"/outputs/musicxml/{uid}.musicxml",
         "uid": uid,
         "key": f"{tonic} {mode}",
+        "era": era,
     })

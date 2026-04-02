@@ -1,6 +1,6 @@
 # [claude-code/claude-sonnet-4-6] rule-based SATB harmonizer with era parameter
 # era options: 'classical' | 'baroque' | 'romantic' | 'jazz'
-from music21 import stream, note, chord, tempo, meter, key
+from music21 import stream, note, chord, tempo, meter, key, clef, instrument
 import music21
 import numpy as np
 
@@ -112,15 +112,30 @@ def harmonize_melody(melody, tonic='C', mode='major', bpm=80, era='classical'):
     # fall back gracefully if era/mode combo not found
     vocab = ERA_TRIADS.get(era, ERA_TRIADS['classical']).get(mode, ERA_TRIADS['classical']['major'])
 
+    # [claude-code/claude-sonnet-4-6] set part names, instruments, and clefs explicitly
+    # so OSMD and MuseScore show "Soprano/Alto/Tenor/Bass" not hex UUIDs
     s_part = stream.Part(id='Soprano')
     a_part = stream.Part(id='Alto')
     t_part = stream.Part(id='Tenor')
     b_part = stream.Part(id='Bass')
 
-    for p in (s_part, a_part, t_part, b_part):
+    s_part.partName = 'Soprano'
+    a_part.partName = 'Alto'
+    t_part.partName = 'Tenor'
+    b_part.partName = 'Bass'
+
+    part_setup = [
+        (s_part, instrument.Soprano(),  clef.TrebleClef()),
+        (a_part, instrument.Alto(),     clef.TrebleClef()),
+        (t_part, instrument.Tenor(),    clef.Treble8vbClef()),
+        (b_part, instrument.Bass(),     clef.BassClef()),
+    ]
+    for p, instr, cl in part_setup:
+        p.insert(0, instr)
         p.append(tempo.MetronomeMark(number=bpm))
         p.append(meter.TimeSignature('4/4'))
         p.append(key.Key(tonic, mode))
+        p.append(cl)
 
     tonic_midi = music21.pitch.Pitch(tonic).midi
 
@@ -163,4 +178,8 @@ def harmonize_melody(melody, tonic='C', mode='major', bpm=80, era='classical'):
     sc.append(a_part)
     sc.append(t_part)
     sc.append(b_part)
+    # makeMeasures adds barlines + fills incomplete measures; makeBeams fixes beaming
+    sc.makeMeasures(inPlace=True)
+    for p in sc.parts:
+        p.makeBeams(inPlace=True)
     return sc

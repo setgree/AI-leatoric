@@ -1,6 +1,6 @@
-# [claude-code/claude-sonnet-4-6] FastAPI backend: mic audio → pitch detection → SATB harmonization → MusicXML
+# [claude-code/claude-sonnet-4-6] FastAPI backend: mic audio → Basic Pitch detection → SATB harmonization → MusicXML
 from dotenv import load_dotenv
-load_dotenv()  # loads .env file if present — ANTHROPIC_API_KEY goes there, never in git
+load_dotenv()  # loads .env file — ANTHROPIC_API_KEY goes there, never in git
 
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -8,9 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from typing import Optional
 import uuid
 import os
-import soundfile as sf
 import numpy as np
-import librosa
+import music21
 from harmonizer import harmonize_melody
 
 OUT_DIR = "outputs"
@@ -28,26 +27,34 @@ def index():
         return HTMLResponse(f.read())
 
 
-# [claude-code/claude-sonnet-4-6] snap note onsets and durations to a beat grid given BPM
+# [claude-code/claude-sonnet-4-6] snap note onsets/durations to eighth-note grid at given BPM
 def quantize_melody(melody, bpm):
     if not bpm or bpm <= 0:
         return melody
-    beat_sec = 60.0 / bpm          # quarter note duration in seconds
-    eighth_sec = beat_sec / 2      # smallest grid unit
+    eighth_sec = (60.0 / bpm) / 2
 
-    def snap(t):
-        return round(t / eighth_sec) * eighth_sec
+    def snap(t):      return round(t / eighth_sec) * eighth_sec
+    def snap_dur(d):  return max(eighth_sec, round(d / eighth_sec) * eighth_sec)
 
-    def snap_dur(d):
-        snapped = max(eighth_sec, round(d / eighth_sec) * eighth_sec)
-        return snapped
+    return [(midi, snap(st), snap(st) + snap_dur(en - st)) for midi, st, en in melody]
 
-    quantized = []
-    for midi, st, en in melody:
-        q_st = snap(st)
-        q_dur = snap_dur(en - st)
-        quantized.append((midi, q_st, q_st + q_dur))
-    return quantized
+
+# [claude-code/claude-sonnet-4-6] use Basic Pitch (Spotify) for pitch detection
+# Much more robust than librosa.pyin for cello: handles low frequencies, vibrato, bow noise
+def detect_melody_basic_pitch(audio_path):
+    from basic_pitch.inference import predict
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+
+    _, midi_data, _ = predict(audio_path, ICASSP_2022_MODEL_PATH)
+
+    melody = []
+    for instrument in midi_data.instruments:
+        for note in instrument.notes:
+            melody.append((int(note.pitch), float(note.start), float(note.end)))
+
+    # sort by onset time
+    melody.sort(key=lambda x: x[1])
+    return melody
 
 
 @app.post("/transcribe")
@@ -63,52 +70,25 @@ async def transcribe(
         f.write(content)
 
     try:
-        y, sr = sf.read(tmp_path)
-        if y.ndim > 1:
-            y = np.mean(y, axis=1)
-        y = y.astype(np.float32)
-    except Exception:
-        y, sr = librosa.load(tmp_path, sr=None, mono=True)
-
-    hop_length = 256
-    # [claude-code/claude-sonnet-4-6] pyin handles cello range well (C2–C7)
-    f0, voiced_flag, _ = librosa.pyin(
-        y,
-        fmin=librosa.note_to_hz('C2'),
-        fmax=librosa.note_to_hz('C7'),
-        sr=sr,
-        hop_length=hop_length,
-    )
-
-    times = librosa.times_like(f0, sr=sr, hop_length=hop_length)
-    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop_length)
-    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop_length)
-    if len(onset_times) == 0:
-        onset_times = np.array([0.0])
-
-    melody = []
-    for i, st in enumerate(onset_times):
-        en = onset_times[i + 1] if i + 1 < len(onset_times) else times[-1]
-        mask = (times >= st) & (times < en) & (~np.isnan(f0)) & voiced_flag
-        if not np.any(mask):
-            continue
-        freq = np.median(f0[mask])
-        midi = int(np.round(librosa.hz_to_midi(freq)))
-        melody.append((int(midi), float(st), float(en)))
+        melody = detect_melody_basic_pitch(tmp_path)
+    except Exception as e:
+        return JSONResponse({"error": f"pitch detection failed: {str(e)}"}, status_code=500)
+    finally:
+        try: os.unlink(tmp_path)
+        except: pass
 
     if not melody:
         return JSONResponse({"error": "no melody detected"}, status_code=400)
 
     melody = quantize_melody(melody, bpm)
 
-    # [claude-code/claude-sonnet-4-6] detect key from melody using music21's Krumhansl-Schmuckler analysis
-    import music21
+    # detect key from melody notes
     key_stream = music21.stream.Stream()
-    for midi, st, en in melody:
+    for midi, _, _ in melody:
         key_stream.append(music21.note.Note(midi))
     detected_key = key_stream.analyze('key')
     tonic = detected_key.tonic.name
-    mode = detected_key.mode  # 'major' or 'minor'
+    mode  = detected_key.mode
 
     score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80, era=era or 'classical')
 

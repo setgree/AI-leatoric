@@ -10,3 +10,5 @@ pytest
 httpx
 anthropic
 python-dotenv
+basic-pitch[onnx]
+setuptools<70

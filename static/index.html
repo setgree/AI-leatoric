@@ -164,31 +164,58 @@ metroBtn.addEventListener('click', () => {
   if (metroRunning) stopMetronome(); else startMetronome();
 });
 
-// [claude-code/claude-sonnet-4-6] MediaRecorder: capture mic → send to /transcribe → render with OSMD
-let mediaRecorder = null;
-let chunks = [];
+// [claude-code/claude-sonnet-4-6] record via Web Audio API as raw PCM → encode to WAV in browser
+// avoids needing ffmpeg on the server; soundfile can decode WAV natively
+let micStream    = null;
+let audioSource  = null;
+let scriptProc   = null;
+let pcmSamples   = [];
+let recordingSR  = 44100;
+
+function encodeWAV(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  function write(off, str) { for (let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); }
+  function u32(off, v) { view.setUint32(off, v, true); }
+  function u16(off, v) { view.setUint16(off, v, true); }
+  write(0,  'RIFF');  u32(4, 36 + samples.length*2);  write(8, 'WAVE');
+  write(12, 'fmt ');  u32(16, 16);  u16(20, 1);  u16(22, 1);
+  u32(24, sampleRate);  u32(28, sampleRate*2);  u16(32, 2);  u16(34, 16);
+  write(36, 'data');  u32(40, samples.length*2);
+  for (let i=0; i<samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(44 + i*2, s < 0 ? s*0x8000 : s*0x7FFF, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
 
 recordBtn.addEventListener('click', async () => {
   if (!detectedBpm) {
     statusEl.textContent = 'Please tap the beat first (Step 1).';
     return;
   }
-  let stream;
+
+  // resume AudioContext if suspended (browser autoplay policy)
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  recordingSR = audioCtx.sampleRate;
+
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (e) {
     statusEl.textContent = 'Microphone access denied. Please allow mic access and try again.';
     return;
   }
 
-  // resume AudioContext if suspended (browser autoplay policy)
-  if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
-
-  chunks = [];
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-  mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); uploadAudio(); };
-  mediaRecorder.start();
+  pcmSamples = [];
+  audioSource = audioCtx.createMediaStreamSource(micStream);
+  scriptProc  = audioCtx.createScriptProcessor(4096, 1, 1);
+  scriptProc.onaudioprocess = e => {
+    const data = e.inputBuffer.getChannelData(0);
+    pcmSamples.push(new Float32Array(data));
+  };
+  audioSource.connect(scriptProc);
+  scriptProc.connect(audioCtx.destination);
 
   recordBtn.disabled = true;
   recordBtn.classList.add('active');
@@ -199,25 +226,32 @@ recordBtn.addEventListener('click', async () => {
 
 stopBtn.addEventListener('click', () => {
   stopMetronome();
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+
+  if (scriptProc)  { scriptProc.disconnect();  scriptProc = null; }
+  if (audioSource) { audioSource.disconnect(); audioSource = null; }
+  if (micStream)   { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+
   stopBtn.disabled = true;
   recordBtn.disabled = false;
   recordBtn.classList.remove('active');
   statusEl.textContent = 'Processing…';
+  uploadAudio();
 });
 
 async function uploadAudio() {
-  const mimeType = (chunks[0] && chunks[0].type) || 'audio/webm';
-  const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
-  const blob = new Blob(chunks, { type: mimeType });
+  const merged = new Float32Array(pcmSamples.reduce((n,b) => n + b.length, 0));
+  let offset = 0;
+  for (const b of pcmSamples) { merged.set(b, offset); offset += b.length; }
 
-  if (blob.size === 0) {
+  const blob = encodeWAV(merged, recordingSR);
+
+  if (blob.size < 100) {
     statusEl.textContent = 'Error: recording was empty. Try recording for longer.';
     return;
   }
 
   const fd = new FormData();
-  fd.append('file', blob, `recording.${ext}`);
+  fd.append('file', blob, 'recording.wav');
   fd.append('bpm', String(detectedBpm));
   fd.append('era', document.getElementById('era-select').value);
 

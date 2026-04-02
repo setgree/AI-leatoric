@@ -57,10 +57,14 @@ constant restarts. If you need live reload during development, use
 5. Frontend: fetch MusicXML → render with OSMD → show download link
 
 ### Key files
-- `backend.py` — FastAPI app, pitch extraction, quantization, key detection
-- `harmonizer.py` — rule-based SATB harmonizer (major + minor triads, voice range clamping)
-- `static/index.html` — all UI: tap tempo, metronome, mic recording, OSMD rendering, download link
-- `requirements.txt` — Python dependencies
+- `backend.py` — FastAPI app: Basic Pitch detection, deduplication, outlier filtering, quantization, key detection
+- `harmonizer.py` — orchestrator: calls selected backend, converts output to music21 Score
+- `backends/base.py` — HarmonizerBackend Protocol (swap backends here)
+- `backends/claude_api.py` — Claude API backend (claude-opus-4-6); era + weirdness + voice_part aware
+- `backends/rule_based.py` — local rule-based fallback; no API key needed
+- `static/index.html` — all UI: BPM slider, metronome, backend toggle, voice selector, era, weirdness slider, OSMD rendering
+- `requirements.txt` — Python dependencies (Python 3.11 required — 3.14 too new for ML deps)
+- `.env` — ANTHROPIC_API_KEY goes here (gitignored)
 - `tests/test_harmonizer.py` — unit tests for harmonizer (eras, voice ranges, BPM, fallbacks)
 - `tests/test_backend.py` — integration tests using synthetic WAV files (no mic needed)
 - `outputs/musicxml/` — generated MusicXML files (gitignored)
@@ -68,22 +72,24 @@ constant restarts. If you need live reload during development, use
 ### Running tests
 ```bash
 source .venv/bin/activate
-python -m pytest tests/ -v
+python -m pytest tests/ -v   # 17 tests, all passing
 ```
 
 ---
 
 ## Known Limitations / Next Steps
 
-- **Harmonizer is rule-based and conservative** — one triad per note, no voice leading smoothing.
-  Good candidates for improvement: avoid parallel fifths/octaves, add passing tones, ii-V-I motion.
-- **Key detection confidence is not surfaced** — music21 returns a confidence score we could show.
-- **Time signature is hardcoded to 4/4** — acceptable for now.
-- **Browser audio format** — MediaRecorder outputs webm (Chrome) or ogg (Firefox).
-  librosa.load handles both via soundfile/audioread. No ffmpeg required currently.
+- **Pitch detection accuracy** — Basic Pitch is good but not perfect for unaccompanied voice.
+  Semitone errors on passing notes are common; errors track actual intonation (flat D → C#).
+  Currently acceptable; revisit if accuracy becomes a blocker.
+- **Duplicate note detection** — Basic Pitch splits sustained notes; mitigated with 150ms merge window.
+  Occasionally 2-3 detections of the same attack still slip through.
+- **Time signature hardcoded to 4/4** — acceptable for now.
 - **No real-time display** — transcription happens after recording stops, not live.
-- **Era / outeredness sliders** — conceived in original vision, not yet implemented.
-  Would map to harmonization style (baroque voice leading rules, jazz extensions, etc.)
+- **Key detection confidence not surfaced** — music21 returns a confidence score we could show.
+- **DeepBach as alternative backend** — would give genuine Bach-style voice leading locally,
+  but only Bach. Use `backends/base.py` interface to add it.
+- **LilyPond PDF export** — optional nice-to-have; `brew install lilypond` + music21 → PDF.
 
 ---
 
@@ -160,9 +166,22 @@ All models must sign every function or significant block:
 - Basic Pitch not yet adopted — librosa.pyin is good enough for now, revisit if octave errors appear
 - LilyPond PDF export noted as optional future feature
 
+**What happened:**
+- Replaced librosa.pyin with Basic Pitch (Spotify neural net) for pitch detection
+- Added Basic Pitch parameter tuning: minimum_note_length=200ms, onset/frame thresholds raised
+- Added outlier pitch filter (drops notes >2 octaves from median)
+- Added consecutive same-pitch note merging (150ms gap threshold)
+- Rebuilt venv on Python 3.11 (3.14 too new for ML packages)
+- Implemented pluggable backend architecture (backends/base.py Protocol)
+- Claude API backend (claude-opus-4-6): era + weirdness (1–100) + voice_part aware
+- Rule-based backend kept as local fallback
+- UI: BPM slider (replaces tap-tempo), metronome, backend toggle, voice part selector,
+  era dropdown, weirdness slider (Claude only)
+- Detected notes shown in UI for diagnostics
+- End-to-end test: sang C major scale, got C D E F G F E C — working
+
 **Next steps (suggested):**
-- Test end-to-end with actual cello/voice input
-- Voice leading improvements (avoid parallel fifths, smoother motion)
-- Expose key detection confidence score in UI
-- Consider outeredness slider (era is done; outeredness = how far harmony drifts from input)
-- Delete stuff_done.md (fully superseded by this file)
+- Try with cello (Seth's main instrument)
+- Voice leading quality assessment with Claude backend
+- Possibly snap detected pitches to key scale degrees (optional — current accuracy may be sufficient)
+- DeepBach as local high-quality alternative backend

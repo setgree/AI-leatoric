@@ -42,11 +42,20 @@ def test_note_count_matches_melody():
         assert len(notes) == len(C_MAJOR_MELODY), f"{part.id} has wrong note count"
 
 
-def test_soprano_follows_melody():
-    score = harmonize_melody(C_MAJOR_MELODY, tonic='C', mode='major', bpm=80, backend=RB)
+def test_soprano_input_stays_in_soprano_range():
+    score = harmonize_melody(C_MAJOR_MELODY, tonic='C', mode='major', bpm=80,
+                             voice_part='soprano', backend=RB)
     soprano_notes = [n for n in score.parts[0].flatten().notesAndRests if isinstance(n, note.Note)]
-    for m in [n.pitch.midi for n in soprano_notes]:
-        assert 60 <= m <= 79, f"Soprano note {m} out of range"
+    for n in soprano_notes:
+        assert 60 <= n.pitch.midi <= 79, f"Soprano note {n.pitch.midi} out of range"
+
+
+def test_bass_input_stays_in_bass_range():
+    score = harmonize_melody(C_MAJOR_MELODY, tonic='C', mode='major', bpm=80,
+                             voice_part='bass', backend=RB)
+    bass_notes = [n for n in score.parts[3].flatten().notesAndRests if isinstance(n, note.Note)]
+    for n in bass_notes:
+        assert 40 <= n.pitch.midi <= 60, f"Bass note {n.pitch.midi} out of range"
 
 
 def test_voice_ranges():
@@ -64,6 +73,12 @@ def test_all_eras_produce_output():
     for era in ERA_TRIADS:
         score = harmonize_melody(C_MAJOR_MELODY, tonic='C', mode='major', bpm=80, era=era, backend=RB)
         assert len(score.parts) == 4, f"era={era} produced wrong part count"
+
+
+def test_all_voice_parts_produce_output():
+    for vp in ('soprano', 'alto', 'tenor', 'bass'):
+        score = harmonize_melody(C_MAJOR_MELODY, tonic='C', bpm=80, voice_part=vp, backend=RB)
+        assert len(score.parts) == 4, f"voice_part={vp} produced wrong part count"
 
 
 def test_minor_key():

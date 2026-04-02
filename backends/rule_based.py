@@ -1,6 +1,6 @@
-# [claude-code/claude-sonnet-4-6] rule-based SATB backend — kept as fallback if Claude API unavailable
+# [claude-code/claude-sonnet-4-6] rule-based SATB backend — local fallback, no API key needed
+# Honest label: this produces correct diatonic harmony but no voice leading.
 import music21
-
 
 ERA_TRIADS = {
     'classical': {
@@ -21,10 +21,18 @@ ERA_TRIADS = {
     },
 }
 
+# SATB ranges: (lo, hi) in MIDI
+VOICE_RANGES = {
+    'soprano': (60, 79),
+    'alto':    (55, 72),
+    'tenor':   (48, 67),
+    'bass':    (40, 60),
+}
+
 
 def _best_chord(midi, tonic_midi, chords):
     pc = midi % 12
-    for name, tones in chords.items():
+    for tones in chords.values():
         if pc in [(tonic_midi + t) % 12 for t in tones]:
             return tones
     return next(iter(chords.values()))
@@ -41,10 +49,22 @@ def _midi_to_pitch(m):
 
 
 class RuleBasedBackend:
-    def harmonize(self, melody, tonic, mode, era, bpm):
+    def harmonize(self, melody, tonic, mode, era, bpm, voice_part='soprano', weirdness=50):
         beat_sec = 60.0 / bpm
         vocab = ERA_TRIADS.get(era, ERA_TRIADS['classical']).get(mode, ERA_TRIADS['classical']['major'])
         tonic_midi = music21.pitch.Pitch(tonic).midi
+        voice_part = voice_part.lower()
+
+        # which chord tone index goes to which voice (given the input voice)
+        # voices ordered: soprano, alto, tenor, bass
+        # tones[0]=root, tones[1]=3rd, tones[2]=5th, tones[3]=7th (if present)
+        tone_map = {
+            'soprano': {'soprano': None, 'alto': 2, 'tenor': 1, 'bass': 0},
+            'alto':    {'soprano': 2,    'alto': None, 'tenor': 1, 'bass': 0},
+            'tenor':   {'soprano': 2,    'alto': 1,    'tenor': None, 'bass': 0},
+            'bass':    {'soprano': 2,    'alto': 1,    'tenor': 0,    'bass': None},
+        }
+        assignment = tone_map.get(voice_part, tone_map['soprano'])
 
         satb = {'soprano': [], 'alto': [], 'tenor': [], 'bass': []}
         for midi, st, en in melody:
@@ -52,14 +72,18 @@ class RuleBasedBackend:
             ql = max(0.5, round((dur_sec / beat_sec) * 2) / 2)
             tones = _best_chord(midi, tonic_midi, vocab)
 
-            s = _clamp(midi, 60, 79)
-            a = _clamp(tonic_midi + tones[2 % len(tones)], 55, 72)
-            t = _clamp(tonic_midi + tones[1 % len(tones)] - 12, 48, 67)
-            b = _clamp(tonic_midi + tones[0] - 12, 40, 60)
+            notes = {}
+            for voice, tone_idx in assignment.items():
+                if tone_idx is None:
+                    # this is the user's voice — clamp to its range
+                    lo, hi = VOICE_RANGES[voice_part]
+                    notes[voice] = _clamp(midi, lo, hi)
+                else:
+                    idx = min(tone_idx, len(tones) - 1)
+                    lo, hi = VOICE_RANGES[voice]
+                    notes[voice] = _clamp(tonic_midi + tones[idx], lo, hi)
 
-            satb['soprano'].append({'pitch': _midi_to_pitch(s), 'quarterLength': ql})
-            satb['alto'].append(   {'pitch': _midi_to_pitch(a), 'quarterLength': ql})
-            satb['tenor'].append(  {'pitch': _midi_to_pitch(t), 'quarterLength': ql})
-            satb['bass'].append(   {'pitch': _midi_to_pitch(b), 'quarterLength': ql})
+            for voice in ('soprano', 'alto', 'tenor', 'bass'):
+                satb[voice].append({'pitch': _midi_to_pitch(notes[voice]), 'quarterLength': ql})
 
         return satb

@@ -21,7 +21,8 @@ def _make_part(part_id, instr, cl, bpm, tonic, mode, notes):
     return p
 
 
-def harmonize_melody(melody, tonic='C', mode='major', bpm=80, era='classical', backend=None):
+def harmonize_melody(melody, tonic='C', mode='major', bpm=80, era='classical',
+                     voice_part='soprano', weirdness=50, backend=None):
     """
     melody  : list of (midi, start_sec, end_sec)
     backend : a HarmonizerBackend instance, or None to use ClaudeBackend (with rule-based fallback)
@@ -31,7 +32,8 @@ def harmonize_melody(melody, tonic='C', mode='major', bpm=80, era='classical', b
         from backends.claude_api import ClaudeBackend
         backend = ClaudeBackend()
 
-    satb = backend.harmonize(melody, tonic=tonic, mode=mode, era=era, bpm=bpm)
+    satb = backend.harmonize(melody, tonic=tonic, mode=mode, era=era, bpm=bpm,
+                             voice_part=voice_part, weirdness=weirdness)
 
     parts = [
         _make_part('Soprano', instrument.Soprano(), clef.TrebleClef(),     bpm, tonic, mode, satb['soprano']),

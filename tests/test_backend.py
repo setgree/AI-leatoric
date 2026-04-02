@@ -55,7 +55,7 @@ def test_transcribe_returns_200():
     wav = make_wav([(C4, 0.5), (E4, 0.5), (G4, 0.5)])
     resp = client.post(
         '/transcribe',
-        data={'bpm': '80', 'era': 'classical'},
+        data={'bpm': '80', 'era': 'classical', 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
         files={'file': ('test.wav', wav, 'audio/wav')},
     )
     assert resp.status_code == 200, resp.text
@@ -65,7 +65,7 @@ def test_response_has_musicxml_key():
     wav = make_wav([(C4, 0.5), (E4, 0.5), (G4, 0.5)])
     resp = client.post(
         '/transcribe',
-        data={'bpm': '80', 'era': 'classical'},
+        data={'bpm': '80', 'era': 'classical', 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
         files={'file': ('test.wav', wav, 'audio/wav')},
     )
     j = resp.json()
@@ -77,7 +77,7 @@ def test_musicxml_file_exists_on_disk():
     wav = make_wav([(C4, 0.5), (E4, 0.5), (G4, 0.5)])
     resp = client.post(
         '/transcribe',
-        data={'bpm': '80', 'era': 'classical'},
+        data={'bpm': '80', 'era': 'classical', 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
         files={'file': ('test.wav', wav, 'audio/wav')},
     )
     xml_url = resp.json()['musicxml']
@@ -90,7 +90,7 @@ def test_key_is_returned():
     wav = make_wav([(C4, 0.5), (E4, 0.5), (G4, 0.5)])
     resp = client.post(
         '/transcribe',
-        data={'bpm': '80', 'era': 'classical'},
+        data={'bpm': '80', 'era': 'classical', 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
         files={'file': ('test.wav', wav, 'audio/wav')},
     )
     j = resp.json()
@@ -103,7 +103,7 @@ def test_all_eras_succeed():
     for era in ('classical', 'baroque', 'romantic', 'jazz'):
         resp = client.post(
             '/transcribe',
-            data={'bpm': '80', 'era': era},
+            data={'bpm': '80', 'era': era, 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
             files={'file': ('test.wav', wav, 'audio/wav')},
         )
         assert resp.status_code == 200, f"era={era} failed: {resp.text}"
@@ -115,7 +115,7 @@ def test_empty_audio_returns_400():
     wav = make_wav([(0.0, 0.1)])   # 100ms of silence
     resp = client.post(
         '/transcribe',
-        data={'bpm': '80', 'era': 'classical'},
+        data={'bpm': '80', 'era': 'classical', 'voice_part': 'soprano', 'weirdness': '50', 'use_claude': 'false'},
         files={'file': ('test.wav', wav, 'audio/wav')},
     )
     assert resp.status_code == 400

@@ -47,15 +47,51 @@
   <div id="tap-count">No taps yet. Tap at least 4 times, then record.</div>
 </section>
 
-<!-- Step 2: Era -->
+<!-- Step 2: Settings -->
 <section>
-  <h2>Step 2 — Choose an era</h2>
-  <select id="era-select" style="padding:0.3rem 0.6rem; font-size:0.9rem;">
-    <option value="classical">Classical — diatonic triads</option>
-    <option value="baroque">Baroque — triads + V7 cadences</option>
-    <option value="romantic">Romantic — 7th chords throughout</option>
-    <option value="jazz">Jazz — extended harmony (7ths, tritone subs)</option>
-  </select>
+  <h2>Step 2 — Settings</h2>
+
+  <div style="margin-bottom:0.75rem">
+    <label style="font-size:0.9rem;font-weight:bold">Harmonizer:</label><br>
+    <label style="font-size:0.9rem">
+      <input type="radio" name="backend" id="backend-claude" value="true" checked>
+      Claude API <span style="color:#555;font-size:0.8rem">(better harmony, requires API key)</span>
+    </label>
+    &nbsp;&nbsp;
+    <label style="font-size:0.9rem">
+      <input type="radio" name="backend" id="backend-local" value="false">
+      Local <span style="color:#555;font-size:0.8rem">(rule-based, no API key needed)</span>
+    </label>
+  </div>
+
+  <div style="margin-bottom:0.75rem">
+    <label for="voice-select" style="font-size:0.9rem;font-weight:bold">I'm singing/playing the:</label><br>
+    <select id="voice-select" style="padding:0.3rem 0.6rem; font-size:0.9rem; margin-top:0.25rem">
+      <option value="soprano">Soprano</option>
+      <option value="alto">Alto</option>
+      <option value="tenor">Tenor</option>
+      <option value="bass">Bass</option>
+    </select>
+  </div>
+
+  <div style="margin-bottom:0.75rem">
+    <label for="era-select" style="font-size:0.9rem;font-weight:bold">Era:</label><br>
+    <select id="era-select" style="padding:0.3rem 0.6rem; font-size:0.9rem; margin-top:0.25rem">
+      <option value="classical">Classical — diatonic triads</option>
+      <option value="baroque">Baroque — triads + V7 cadences</option>
+      <option value="romantic">Romantic — 7th chords throughout</option>
+      <option value="jazz">Jazz — extended harmony (7ths, tritone subs)</option>
+    </select>
+  </div>
+
+  <div id="weirdness-section" style="margin-bottom:0.75rem">
+    <label for="weirdness-slider" style="font-size:0.9rem;font-weight:bold">
+      Weirdness: <span id="weirdness-value">50</span>/100
+    </label><br>
+    <input type="range" id="weirdness-slider" min="1" max="100" value="50"
+           style="width:260px; margin-top:0.25rem">
+    <span style="font-size:0.8rem;color:#555" id="weirdness-label">balanced</span>
+  </div>
 </section>
 
 <!-- Step 3: Record -->
@@ -75,6 +111,32 @@
 
 <script>
 // [claude-code/claude-sonnet-4-6] tap tempo + Web Audio metronome click track
+// [claude-code/claude-sonnet-4-6] weirdness slider + backend toggle wiring
+const weirdnessSlider  = document.getElementById('weirdness-slider');
+const weirdnessValue   = document.getElementById('weirdness-value');
+const weirdnessLabel   = document.getElementById('weirdness-label');
+const weirdnessSection = document.getElementById('weirdness-section');
+
+const WEIRDNESS_LABELS = [
+  [20,  'very conservative'],
+  [40,  'traditional'],
+  [60,  'balanced'],
+  [80,  'adventurous'],
+  [100, 'experimental'],
+];
+
+weirdnessSlider.addEventListener('input', () => {
+  const v = parseInt(weirdnessSlider.value);
+  weirdnessValue.textContent = v;
+  weirdnessLabel.textContent = WEIRDNESS_LABELS.find(([max]) => v <= max)[1];
+});
+
+document.querySelectorAll('input[name="backend"]').forEach(r => {
+  r.addEventListener('change', () => {
+    weirdnessSection.style.display = r.value === 'true' ? 'block' : 'none';
+  });
+});
+
 const tapBtn      = document.getElementById('tap-btn');
 const resetTapBtn = document.getElementById('reset-tap-btn');
 const metroBtn    = document.getElementById('metro-btn');
@@ -254,6 +316,9 @@ async function uploadAudio() {
   fd.append('file', blob, 'recording.wav');
   fd.append('bpm', String(detectedBpm));
   fd.append('era', document.getElementById('era-select').value);
+  fd.append('voice_part', document.getElementById('voice-select').value);
+  fd.append('weirdness', weirdnessSlider.value);
+  fd.append('use_claude', document.querySelector('input[name="backend"]:checked').value);
 
   let res, json;
   try {

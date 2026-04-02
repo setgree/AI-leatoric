@@ -62,6 +62,9 @@ async def transcribe(
     file: UploadFile = File(...),
     bpm: Optional[float] = Form(None),
     era: Optional[str] = Form('classical'),
+    voice_part: Optional[str] = Form('soprano'),
+    weirdness: Optional[int] = Form(50),
+    use_claude: Optional[str] = Form('true'),
 ):
     uid = uuid.uuid4().hex
     tmp_path = f"/tmp/{uid}_{file.filename}"
@@ -90,7 +93,16 @@ async def transcribe(
     tonic = detected_key.tonic.name
     mode  = detected_key.mode
 
-    score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80, era=era or 'classical')
+    if use_claude == 'true':
+        from backends.claude_api import ClaudeBackend
+        backend = ClaudeBackend()
+    else:
+        from backends.rule_based import RuleBasedBackend
+        backend = RuleBasedBackend()
+
+    score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80,
+                             era=era or 'classical', voice_part=voice_part or 'soprano',
+                             weirdness=weirdness or 50, backend=backend)
 
     xml_path = os.path.join(XML_DIR, f"{uid}.musicxml")
     score.write('musicxml', fp=xml_path)

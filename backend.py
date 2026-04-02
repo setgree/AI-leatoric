@@ -1,4 +1,7 @@
 # [claude-code/claude-sonnet-4-6] FastAPI backend: mic audio → pitch detection → SATB harmonization → MusicXML
+from dotenv import load_dotenv
+load_dotenv()  # loads .env file if present — ANTHROPIC_API_KEY goes there, never in git
+
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles

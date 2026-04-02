@@ -168,7 +168,8 @@ async function uploadAudio() {
   statusEl.textContent = 'Rendering score…';
   await renderScore(json.musicxml);
 
-  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)`;
+  const keyLabel = json.key ? ` · Detected key: ${json.key}` : '';
+  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)${keyLabel}`;
 }
 
 // [claude-code/claude-sonnet-4-6] fetch MusicXML and render inline with OpenSheetMusicDisplay

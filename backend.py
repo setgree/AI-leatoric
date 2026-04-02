@@ -97,7 +97,16 @@ async def transcribe(
 
     melody = quantize_melody(melody, bpm)
 
-    score = harmonize_melody(melody, bpm=bpm or 80)
+    # [claude-code/claude-sonnet-4-6] detect key from melody using music21's Krumhansl-Schmuckler analysis
+    import music21
+    key_stream = music21.stream.Stream()
+    for midi, st, en in melody:
+        key_stream.append(music21.note.Note(midi))
+    detected_key = key_stream.analyze('key')
+    tonic = detected_key.tonic.name
+    mode = detected_key.mode  # 'major' or 'minor'
+
+    score = harmonize_melody(melody, tonic=tonic, mode=mode, bpm=bpm or 80)
 
     xml_path = os.path.join(XML_DIR, f"{uid}.musicxml")
     score.write('musicxml', fp=xml_path)
@@ -105,4 +114,5 @@ async def transcribe(
     return JSONResponse({
         "musicxml": f"/outputs/musicxml/{uid}.musicxml",
         "uid": uid,
+        "key": f"{tonic} {mode}",
     })

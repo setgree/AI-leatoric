@@ -14,7 +14,7 @@ def _choose_chord(midi, tonic_midi, triads):
     return triads['I']
 
 
-def harmonize_melody(melody, tonic='C', bpm=80):
+def harmonize_melody(melody, tonic='C', mode='major', bpm=80):
     """
     melody: list of (midi, start_sec, end_sec)
     bpm: used to convert seconds → quarter lengths
@@ -30,17 +30,28 @@ def harmonize_melody(melody, tonic='C', bpm=80):
     for p in (s_part, a_part, t_part, b_part):
         p.append(tempo.MetronomeMark(number=bpm))
         p.append(meter.TimeSignature('4/4'))
-        p.append(key.Key(tonic))
+        p.append(key.Key(tonic, mode))
 
-    # diatonic triads in major (semitone offsets from tonic)
-    triads = {
-        'I':   [0, 4, 7],
-        'ii':  [2, 5, 9],
-        'iii': [4, 7, 11],
-        'IV':  [5, 9, 0],
-        'V':   [7, 11, 2],
-        'vi':  [9, 0, 4],
-    }
+    # [claude-code/claude-sonnet-4-6] diatonic triads for major and natural minor
+    if mode == 'minor':
+        triads = {
+            'i':   [0, 3, 7],
+            'ii°': [2, 5, 8],
+            'III': [3, 7, 10],
+            'iv':  [5, 8, 0],
+            'V':   [7, 11, 2],   # harmonic V (raised 7th) for leading tone
+            'VI':  [8, 0, 3],
+            'VII': [10, 2, 5],
+        }
+    else:
+        triads = {
+            'I':   [0, 4, 7],
+            'ii':  [2, 5, 9],
+            'iii': [4, 7, 11],
+            'IV':  [5, 9, 0],
+            'V':   [7, 11, 2],
+            'vi':  [9, 0, 4],
+        }
 
     tonic_midi = music21.pitch.Pitch(tonic).midi
 

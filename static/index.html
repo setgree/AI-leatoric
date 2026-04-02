@@ -19,19 +19,15 @@
     }
     button:disabled { opacity: 0.4; cursor: default; }
     button.active   { background: #c00; color: white; border-color: #900; }
+    button.metro-on { background: #080; color: white; border-color: #060; }
 
-    #tap-count  { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
-    #bpm-display { font-weight: bold; }
-
-    #status { font-size: 0.85rem; color: #444; margin-top: 0.5rem; min-height: 1.2em; }
+    #tap-count { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
+    #status    { font-size: 0.85rem; color: #444; margin-top: 0.5rem; min-height: 1.2em; }
+    #error-detail { font-size: 0.8rem; color: #900; margin-top: 0.3rem; font-family: monospace; white-space: pre-wrap; }
 
     #score-container {
-      margin-top: 1rem;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      padding: 1rem;
-      min-height: 200px;
-      background: white;
+      margin-top: 1rem; border: 1px solid #ddd; border-radius: 4px;
+      padding: 1rem; min-height: 200px; background: white;
     }
     #download-link { margin-top: 0.75rem; font-size: 0.85rem; }
     #download-link a { color: #069; }
@@ -47,6 +43,7 @@
   <h2>Step 1 — Set the beat (tap 4+ times in tempo)</h2>
   <button id="tap-btn">Tap</button>
   <button id="reset-tap-btn">Reset</button>
+  <button id="metro-btn" disabled>Metronome off</button>
   <div id="tap-count">No taps yet. Tap at least 4 times, then record.</div>
 </section>
 
@@ -67,6 +64,7 @@
   <button id="record-btn">Record</button>
   <button id="stop-btn" disabled>Stop</button>
   <div id="status">Ready.</div>
+  <div id="error-detail"></div>
 </section>
 
 <!-- Result -->
@@ -76,39 +74,94 @@
 <div id="download-link"></div>
 
 <script>
-// [claude-code/claude-sonnet-4-6] tap tempo: collect timestamps, compute average BPM
+// [claude-code/claude-sonnet-4-6] tap tempo + Web Audio metronome click track
 const tapBtn      = document.getElementById('tap-btn');
 const resetTapBtn = document.getElementById('reset-tap-btn');
+const metroBtn    = document.getElementById('metro-btn');
 const tapCount    = document.getElementById('tap-count');
 const recordBtn   = document.getElementById('record-btn');
 const stopBtn     = document.getElementById('stop-btn');
 const statusEl    = document.getElementById('status');
+const errorDetail = document.getElementById('error-detail');
 const scoreDiv    = document.getElementById('score-container');
 const osmdTarget  = document.getElementById('osmd-target');
 const dlLink      = document.getElementById('download-link');
 
-let tapTimes = [];
-let detectedBpm = null;
+let tapTimes     = [];
+let detectedBpm  = null;
+let metroRunning = false;
+let metroTimeout = null;
+let audioCtx     = null;
+
+// [claude-code/claude-sonnet-4-6] play a short click using Web Audio API
+function playClick(loud) {
+  if (!audioCtx) audioCtx = new AudioContext();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.frequency.value = loud ? 1200 : 900;   // accent beat 1 with higher pitch
+  gain.gain.setValueAtTime(loud ? 0.4 : 0.25, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+  osc.start(now);
+  osc.stop(now + 0.07);
+}
+
+let beatCount = 0;
+function scheduleClick() {
+  if (!metroRunning || !detectedBpm) return;
+  playClick(beatCount % 4 === 0);   // accent every 4th beat
+  beatCount++;
+  const intervalMs = (60 / detectedBpm) * 1000;
+  metroTimeout = setTimeout(scheduleClick, intervalMs);
+}
+
+function startMetronome() {
+  if (metroRunning) return;
+  metroRunning = true;
+  beatCount = 0;
+  metroBtn.textContent = 'Metronome ON';
+  metroBtn.classList.add('metro-on');
+  scheduleClick();
+}
+
+function stopMetronome() {
+  metroRunning = false;
+  clearTimeout(metroTimeout);
+  metroBtn.textContent = 'Metronome off';
+  metroBtn.classList.remove('metro-on');
+}
 
 tapBtn.addEventListener('click', () => {
   tapTimes.push(performance.now());
   if (tapTimes.length < 2) {
-    tapCount.textContent = `1 tap. Keep going...`;
+    tapCount.textContent = '1 tap. Keep going...';
     return;
   }
   const intervals = [];
-  for (let i = 1; i < tapTimes.length; i++) {
-    intervals.push(tapTimes[i] - tapTimes[i - 1]);
-  }
-  const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  for (let i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i-1]);
+  const avgMs = intervals.reduce((a,b) => a+b, 0) / intervals.length;
   detectedBpm = Math.round(60000 / avgMs);
-  tapCount.innerHTML = `${tapTimes.length} taps → <span id="bpm-display">${detectedBpm} BPM</span>`;
+  tapCount.innerHTML = `${tapTimes.length} taps → <strong>${detectedBpm} BPM</strong>`;
+
+  if (tapTimes.length >= 4) {
+    metroBtn.disabled = false;
+    // restart metronome at new BPM if it's running
+    if (metroRunning) { stopMetronome(); startMetronome(); }
+  }
 });
 
 resetTapBtn.addEventListener('click', () => {
+  stopMetronome();
   tapTimes = [];
   detectedBpm = null;
+  metroBtn.disabled = true;
   tapCount.textContent = 'No taps yet. Tap at least 4 times, then record.';
+});
+
+metroBtn.addEventListener('click', () => {
+  if (metroRunning) stopMetronome(); else startMetronome();
 });
 
 // [claude-code/claude-sonnet-4-6] MediaRecorder: capture mic → send to /transcribe → render with OSMD
@@ -128,25 +181,25 @@ recordBtn.addEventListener('click', async () => {
     return;
   }
 
+  // resume AudioContext if suspended (browser autoplay policy)
+  if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+
   chunks = [];
   mediaRecorder = new MediaRecorder(stream);
   mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-  mediaRecorder.onstop = () => {
-    stream.getTracks().forEach(t => t.stop());
-    uploadAudio();
-  };
+  mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); uploadAudio(); };
   mediaRecorder.start();
 
   recordBtn.disabled = true;
   recordBtn.classList.add('active');
   stopBtn.disabled = false;
+  errorDetail.textContent = '';
   statusEl.textContent = 'Recording… sing or play your melody, then click Stop.';
 });
 
 stopBtn.addEventListener('click', () => {
-  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
-  }
+  stopMetronome();
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
   stopBtn.disabled = true;
   recordBtn.disabled = false;
   recordBtn.classList.remove('active');
@@ -158,18 +211,32 @@ async function uploadAudio() {
   const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
   const blob = new Blob(chunks, { type: mimeType });
 
+  if (blob.size === 0) {
+    statusEl.textContent = 'Error: recording was empty. Try recording for longer.';
+    return;
+  }
+
   const fd = new FormData();
-  const era = document.getElementById('era-select').value;
   fd.append('file', blob, `recording.${ext}`);
   fd.append('bpm', String(detectedBpm));
-  fd.append('era', era);
+  fd.append('era', document.getElementById('era-select').value);
 
   let res, json;
   try {
-    res  = await fetch('/transcribe', { method: 'POST', body: fd });
-    json = await res.json();
+    res = await fetch('/transcribe', { method: 'POST', body: fd });
   } catch (e) {
-    statusEl.textContent = 'Network error — is the server running?';
+    statusEl.textContent = 'Network error reaching server.';
+    errorDetail.textContent = String(e);
+    return;
+  }
+
+  // show raw text if response isn't JSON (e.g. server crash)
+  const text = await res.text();
+  try {
+    json = JSON.parse(text);
+  } catch {
+    statusEl.textContent = `Server error (HTTP ${res.status})`;
+    errorDetail.textContent = text.slice(0, 500);
     return;
   }
 
@@ -190,21 +257,18 @@ async function uploadAudio() {
 async function renderScore(xmlUrl) {
   const resp = await fetch(xmlUrl);
   const xmlText = await resp.text();
-
   osmdTarget.innerHTML = '';
   scoreDiv.style.display = 'block';
-
   const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(osmdTarget, {
     autoResize: true,
     drawTitle: false,
   });
-
   try {
     await osmd.load(xmlText);
     osmd.render();
     statusEl.textContent = 'Done. Download MusicXML below to open in MuseScore.';
   } catch (e) {
-    statusEl.textContent = 'Score rendered with warnings (check console for details).';
+    statusEl.textContent = 'Score rendered with warnings (see browser console for details).';
     console.error(e);
   }
 }

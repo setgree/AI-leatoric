@@ -320,7 +320,8 @@ async function uploadAudio() {
 
   const keyLabel = json.key ? ` · Key: ${json.key}` : '';
   const eraLabel = json.era ? ` · Era: ${json.era}` : '';
-  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)${keyLabel}${eraLabel}`;
+  const notesLabel = json.detected_notes ? `<br><span style="font-size:0.8rem;color:#555">Detected: ${json.detected_notes.join(' ')}</span>` : '';
+  dlLink.innerHTML = `<a href="${json.musicxml}" download>Download MusicXML</a> (open in MuseScore for playback)${keyLabel}${eraLabel}${notesLabel}`;
 }
 
 // [claude-code/claude-sonnet-4-6] fetch MusicXML and render inline with OpenSheetMusicDisplay

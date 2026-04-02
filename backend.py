@@ -40,20 +40,35 @@ def quantize_melody(melody, bpm):
 
 
 # [claude-code/claude-sonnet-4-6] use Basic Pitch (Spotify) for pitch detection
-# Much more robust than librosa.pyin for cello: handles low frequencies, vibrato, bow noise
+# Tuned for human voice / cello: longer minimum note, higher thresholds, outlier filtering
 def detect_melody_basic_pitch(audio_path):
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
 
-    _, midi_data, _ = predict(audio_path, ICASSP_2022_MODEL_PATH)
+    _, midi_data, _ = predict(
+        audio_path,
+        ICASSP_2022_MODEL_PATH,
+        minimum_note_length=200,    # ms — filters short attack/breath artifacts (default ~128ms)
+        onset_threshold=0.6,        # slightly stricter onset detection (default 0.5)
+        frame_threshold=0.4,        # slightly stricter frame confidence (default 0.3)
+        minimum_frequency=50.0,     # below cello open C (~65Hz) to catch everything
+        maximum_frequency=1200.0,   # above soprano high C, caps phantom harmonics
+    )
 
     melody = []
     for instrument in midi_data.instruments:
         for note in instrument.notes:
             melody.append((int(note.pitch), float(note.start), float(note.end)))
 
-    # sort by onset time
     melody.sort(key=lambda x: x[1])
+
+    # [claude-code/claude-sonnet-4-6] drop outlier pitches more than 2 octaves from median
+    # catches phantom harmonics / noise spikes like the E5 in an otherwise C3-G3 melody
+    if len(melody) >= 3:
+        midis = [m for m, _, _ in melody]
+        median_midi = sorted(midis)[len(midis) // 2]
+        melody = [(m, st, en) for m, st, en in melody if abs(m - median_midi) <= 24]
+
     return melody
 
 
@@ -107,9 +122,13 @@ async def transcribe(
     xml_path = os.path.join(XML_DIR, f"{uid}.musicxml")
     score.write('musicxml', fp=xml_path)
 
+    import music21 as m21
+    detected_notes = [m21.pitch.Pitch(midi).nameWithOctave for midi, _, _ in melody]
+
     return JSONResponse({
         "musicxml": f"/outputs/musicxml/{uid}.musicxml",
         "uid": uid,
         "key": f"{tonic} {mode}",
         "era": era,
+        "detected_notes": detected_notes,
     })

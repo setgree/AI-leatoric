@@ -21,7 +21,7 @@
     button.active   { background: #c00; color: white; border-color: #900; }
     button.metro-on { background: #080; color: white; border-color: #060; }
 
-    #tap-count { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
+    #bpm-display { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
     #status    { font-size: 0.85rem; color: #444; margin-top: 0.5rem; min-height: 1.2em; }
     #error-detail { font-size: 0.8rem; color: #900; margin-top: 0.3rem; font-family: monospace; white-space: pre-wrap; }
 
@@ -38,13 +38,12 @@
 <h1>AI-leatoric</h1>
 <p class="sub">Sing or play a melody → get 4-part SATB sheet music</p>
 
-<!-- Step 1: Tap tempo -->
+<!-- Step 1: BPM + Metronome -->
 <section>
-  <h2>Step 1 — Set the beat (tap 4+ times in tempo)</h2>
-  <button id="tap-btn">Tap</button>
-  <button id="reset-tap-btn">Reset</button>
-  <button id="metro-btn" disabled>Metronome off</button>
-  <div id="tap-count">No taps yet. Tap at least 4 times, then record.</div>
+  <h2>Step 1 — Set the tempo</h2>
+  <input type="range" id="bpm-slider" min="40" max="200" value="80" style="width:260px">
+  <button id="metro-btn" style="margin-left:0.75rem">Metronome off</button>
+  <div id="bpm-display">80 BPM</div>
 </section>
 
 <!-- Step 2: Settings -->
@@ -111,7 +110,7 @@
 
 <script>
 // [claude-code/claude-sonnet-4-6] tap tempo + Web Audio metronome click track
-// [claude-code/claude-sonnet-4-6] weirdness slider + backend toggle wiring
+// [claude-code/claude-sonnet-4-6] BPM slider + metronome
 const weirdnessSlider  = document.getElementById('weirdness-slider');
 const weirdnessValue   = document.getElementById('weirdness-value');
 const weirdnessLabel   = document.getElementById('weirdness-label');
@@ -137,10 +136,10 @@ document.querySelectorAll('input[name="backend"]').forEach(r => {
   });
 });
 
-const tapBtn      = document.getElementById('tap-btn');
-const resetTapBtn = document.getElementById('reset-tap-btn');
+// [claude-code/claude-sonnet-4-6] BPM slider drives metronome and is sent to server
+const bpmSlider   = document.getElementById('bpm-slider');
+const bpmDisplay  = document.getElementById('bpm-display');
 const metroBtn    = document.getElementById('metro-btn');
-const tapCount    = document.getElementById('tap-count');
 const recordBtn   = document.getElementById('record-btn');
 const stopBtn     = document.getElementById('stop-btn');
 const statusEl    = document.getElementById('status');
@@ -149,13 +148,17 @@ const scoreDiv    = document.getElementById('score-container');
 const osmdTarget  = document.getElementById('osmd-target');
 const dlLink      = document.getElementById('download-link');
 
-let tapTimes     = [];
-let detectedBpm  = null;
+let detectedBpm  = parseInt(bpmSlider.value);
 let metroRunning = false;
 let metroTimeout = null;
 let audioCtx     = null;
 
-// [claude-code/claude-sonnet-4-6] play a short click using Web Audio API
+bpmSlider.addEventListener('input', () => {
+  detectedBpm = parseInt(bpmSlider.value);
+  bpmDisplay.textContent = `${detectedBpm} BPM`;
+  if (metroRunning) { stopMetronome(); startMetronome(); }
+});
+
 function playClick(loud) {
   if (!audioCtx) audioCtx = new AudioContext();
   const now = audioCtx.currentTime;
@@ -163,7 +166,7 @@ function playClick(loud) {
   const gain = audioCtx.createGain();
   osc.connect(gain);
   gain.connect(audioCtx.destination);
-  osc.frequency.value = loud ? 1200 : 900;   // accent beat 1 with higher pitch
+  osc.frequency.value = loud ? 1200 : 900;
   gain.gain.setValueAtTime(loud ? 0.4 : 0.25, now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
   osc.start(now);
@@ -172,11 +175,10 @@ function playClick(loud) {
 
 let beatCount = 0;
 function scheduleClick() {
-  if (!metroRunning || !detectedBpm) return;
-  playClick(beatCount % 4 === 0);   // accent every 4th beat
+  if (!metroRunning) return;
+  playClick(beatCount % 4 === 0);
   beatCount++;
-  const intervalMs = (60 / detectedBpm) * 1000;
-  metroTimeout = setTimeout(scheduleClick, intervalMs);
+  metroTimeout = setTimeout(scheduleClick, (60 / detectedBpm) * 1000);
 }
 
 function startMetronome() {
@@ -194,33 +196,6 @@ function stopMetronome() {
   metroBtn.textContent = 'Metronome off';
   metroBtn.classList.remove('metro-on');
 }
-
-tapBtn.addEventListener('click', () => {
-  tapTimes.push(performance.now());
-  if (tapTimes.length < 2) {
-    tapCount.textContent = '1 tap. Keep going...';
-    return;
-  }
-  const intervals = [];
-  for (let i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i-1]);
-  const avgMs = intervals.reduce((a,b) => a+b, 0) / intervals.length;
-  detectedBpm = Math.round(60000 / avgMs);
-  tapCount.innerHTML = `${tapTimes.length} taps → <strong>${detectedBpm} BPM</strong>`;
-
-  if (tapTimes.length >= 4) {
-    metroBtn.disabled = false;
-    // restart metronome at new BPM if it's running
-    if (metroRunning) { stopMetronome(); startMetronome(); }
-  }
-});
-
-resetTapBtn.addEventListener('click', () => {
-  stopMetronome();
-  tapTimes = [];
-  detectedBpm = null;
-  metroBtn.disabled = true;
-  tapCount.textContent = 'No taps yet. Tap at least 4 times, then record.';
-});
 
 metroBtn.addEventListener('click', () => {
   if (metroRunning) stopMetronome(); else startMetronome();
@@ -252,10 +227,6 @@ function encodeWAV(samples, sampleRate) {
 }
 
 recordBtn.addEventListener('click', async () => {
-  if (!detectedBpm) {
-    statusEl.textContent = 'Please tap the beat first (Step 1).';
-    return;
-  }
 
   // resume AudioContext if suspended (browser autoplay policy)
   if (!audioCtx) audioCtx = new AudioContext();

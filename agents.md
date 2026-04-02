@@ -59,9 +59,17 @@ constant restarts. If you need live reload during development, use
 ### Key files
 - `backend.py` — FastAPI app, pitch extraction, quantization, key detection
 - `harmonizer.py` — rule-based SATB harmonizer (major + minor triads, voice range clamping)
-- `static/index.html` — all UI: tap tempo, mic recording, OSMD rendering, download link
+- `static/index.html` — all UI: tap tempo, metronome, mic recording, OSMD rendering, download link
 - `requirements.txt` — Python dependencies
+- `tests/test_harmonizer.py` — unit tests for harmonizer (eras, voice ranges, BPM, fallbacks)
+- `tests/test_backend.py` — integration tests using synthetic WAV files (no mic needed)
 - `outputs/musicxml/` — generated MusicXML files (gitignored)
+
+### Running tests
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
 
 ---
 
@@ -156,4 +164,5 @@ All models must sign every function or significant block:
 - Test end-to-end with actual cello/voice input
 - Voice leading improvements (avoid parallel fifths, smoother motion)
 - Expose key detection confidence score in UI
-- Consider era/outeredness sliders (original vision)
+- Consider outeredness slider (era is done; outeredness = how far harmony drifts from input)
+- Delete stuff_done.md (fully superseded by this file)

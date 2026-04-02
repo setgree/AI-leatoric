@@ -24,6 +24,14 @@ uvicorn backend:app --port 8000
 - OpenSheetMusicDisplay (browser sheet music rendering)
 - Web Audio API (metronome + WAV capture — no ffmpeg needed)
 
+## Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+Covers the full backend pipeline using synthetic WAV files (no mic needed).
+
 ## Setup (first time)
 
 ```bash

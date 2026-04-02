@@ -15,6 +15,21 @@ The name is a pun on "aleatoric" (chance-based music composition) and "AI."
 
 ---
 
+## How to run
+
+```bash
+cd ~/Library/CloudStorage/Dropbox/claude-projects/AI-leatoric
+source .venv/bin/activate
+uvicorn backend:app --port 8000
+# open http://localhost:8000
+```
+
+Note: do NOT use `--reload` — the `.venv` directory is inside the project and triggers
+constant restarts. If you need live reload during development, use
+`--reload-exclude '.venv'` but expect a few spurious restarts on first launch.
+
+---
+
 ## User Context
 
 - **Developer:** Seth — comfortable in R and terminal, on macOS. No Python knowledge.

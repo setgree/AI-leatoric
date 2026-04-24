@@ -2,6 +2,8 @@
 
 Vibe-coded app to sing or play a melody and get 4-part SATB sheet music in the browser.
 
+This is a total work in progress and Claude Code misled me at several points about whether this would be easy/trivial :) in reality having my computer even figure out what I'm singing is hard. then having it come up with harmonies is hard too. The first draft just treated every note as the base of a triad, no voice leading at all. So, you know, WIP.
+
 ## Setup (first time)
 
 Requires Python 3.11 (not 3.14 — ML dependencies haven't caught up yet):
